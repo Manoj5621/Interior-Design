@@ -1,0 +1,142 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&display=swap');
+
+.font-serif {
+  font-family: 'Playfair Display', serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1e7d8;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CD853F;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #8B4513;
+}
+
+/* Button and input focus states */
+button:focus,
+input:focus,
+select:focus {
+  outline: 2px solid #CD853F;
+  outline-offset: 2px;
+}
+
+/* Smooth transitions */
+button,
+select,
+input {
+  transition: all 0.2s ease-in-out;
+}
+
+/* Canvas container */
+.canvas-container {
+  border: 2px solid #8B4513;
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 0 auto;
+  width: calc(100% - 100px);
+  background: white;
+  margin-bottom: 80px;
+}
+
+/* Toolbar */
+.toolbar {
+  
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background-color: #dbb193;
+  border-bottom: 2px solid #8B4513;
+}
+
+.toolbar-left {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.toolbar-right {
+  margin-left: auto;
+}
+
+/* Tool buttons */
+.tool2d-button,
+.tool2d-select {
+  
+  padding: 8px 16px;
+  border: 1px solid #8B4513;
+  border-radius: 10px;
+  background-color: #EED9C4;
+  color: #8B4513;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.tool2d-button.active {
+  background-color: #8B4513;
+  color: white;
+}
+
+.tool2d-button:hover {
+  background-color: #CD853F;
+  color: white;
+}
+
+/* Submit button */
+.submit-button {
+  padding: 8px 16px;
+  border: 1px solid #8B4513;
+  border-radius: 10px;
+  background-color: #8B4513;
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.submit-button:hover {
+  background-color: #CD853F;
+}
+
+.submit-icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* Header Text */
+.header-text {
+  font-family: 'Playfair Display', serif;
+  font-size: 24px;
+  font-weight: 600;
+  color: #8B4513;
+  text-align: center;
+  margin-top: 30px;
+  margin-bottom: 40px;
+}
+
+/* Konva specific styles */
+.konvajs-content {
+  background: #ffffff;
+}
+
+.konvajs-content text {
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.logo-link {
+  text-decoration: none; /* Removes underline */
+  color: inherit; /* Uses the same color as parent (.logo) */
+}

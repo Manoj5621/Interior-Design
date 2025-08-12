@@ -1,0 +1,82 @@
+.model-grid-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%; /* Ensure it takes full width of its parent */
+    background-color: #ffffff;
+    padding: 1.5rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    margin: 0; /* Remove any margin that might restrict width */
+    max-width: none; /* Ensure no max-width is restricting it */
+  }
+  
+  .search-bar {
+    display: flex;
+    margin-bottom: 1.5rem;
+  }
+  
+  .search-bar input {
+    flex-grow: 1;
+    padding: 0.75rem;
+    font-size: 1rem;
+    border-radius: 8px;
+    border: 1px solid #d7bb91;
+    margin-right: 0.75rem;
+    outline: none;
+    transition: border-color 0.3s ease;
+  }
+  
+  .search-bar input:focus {
+    border-color: #b89a6f;
+  }
+  
+  .search-bar button {
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    background-color: #8B4513;
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+  
+  .search-bar button:hover {
+    background-color: #b89a6f;
+  }
+  
+  .model-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+    flex-grow: 1;
+  }
+  
+  .model-card {
+    cursor: pointer;
+    border: 1px solid #d7bb91;
+    border-radius: 12px;
+    overflow: hidden;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  
+  .model-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  }
+  
+  .model-card img {
+    width: 100%;
+    height: 200px;
+    object-fit: cover;
+  }
+  
+  .model-card div {
+    padding: 1rem;
+    font-size: 1rem;
+    color: #333333;
+    background-color: #f9f9f9;
+  }
