@@ -1,0 +1,44 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&display=swap');
+
+.cart-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.cart-items {
+    flex-grow: 1;
+    overflow-y: auto;
+}
+
+.furniture-footer {
+    background-color: #e2e8f0;
+    padding: 1rem;
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    border-bottom: 2px solid #c3cfe2;
+    position: sticky;
+    bottom: 0;
+}
+
+.priceh1 {
+    font-family: 'Playfair Display', serif;
+    color: #6366f1;
+    font-size: 2rem;
+    font-weight: bold;
+    margin: 10px 0;
+    width: 100%;
+    padding-left: 10px;
+}
+.price-container {
+    display: flex;
+    justify-content: center;
+    background-color: #e2e8f0;
+    border-top: 2px solid #c3cfe2;
+    padding: 0.5rem 0;
+    font-family: 'Playfair Display', serif;
+    font-size: 1.5rem;
+    color: #6366f1;
+    border-radius: 10px;
+}

@@ -1,0 +1,50 @@
+.dlt-btn {
+    color: #6366f1;
+    background-color: #f8fafc;
+    border-radius: 5px;
+    border: 2px solid #6366f1;
+    height: 35px;
+    padding: 0 12px;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.dlt-btn:hover {
+    background-color: #e2e8f0;
+    border-color: #c3cfe2;
+    transform: translateY(-2px);
+    
+}
+
+.dlt-btn:active {
+    background-color: #c3cfe2;
+    border-color: #a5b4fc;
+    transform: translateY(0);
+    
+}
+
+.room-title{
+    color: #6366f1;
+    font-family: 'Playfair Display', serif;
+    padding-bottom: 15px;
+}
+
+.room-image {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 250px;
+    width: 250px;
+    font-size: 40px;
+  
+}
+.room-icon{
+    color: #6366f1;
+}

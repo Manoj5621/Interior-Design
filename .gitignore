@@ -1,0 +1,64 @@
+# =========================
+# Node.js / Frontend
+# =========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+build/
+.next/
+out/
+.cache/
+coverage/
+*.tsbuildinfo
+
+# =========================
+# Python / Backend
+# =========================
+venv/
+.env
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+instance/
+.mypy_cache/
+.pytest_cache/
+*.log
+
+# =========================
+# General / OS files
+# =========================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# =========================
+# IDE / Editors
+# =========================
+.vscode/
+.idea/
+*.iml
+
+# =========================
+# Environment / Secrets
+# =========================
+.env.local
+.env.development
+.env.test
+.env.production
+*.secret
+*.pem
+*.key
+
+# =========================
+# Docker
+# =========================
+docker-compose.override.yml
