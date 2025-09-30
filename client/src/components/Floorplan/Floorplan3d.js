@@ -1,494 +1,478 @@
-import React, { useEffect, useRef, useState } from "react";
+// Floorplan3D.js
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useLocation, useParams, Link } from "react-router-dom";
 import * as THREE from "three";
 import { OrbitControls } from "three-stdlib";
 import "./Floorplan3d.css";
+
+// Import necessary components
 import FurnitureGrid from "./FurnitureGrid.js";
 import ModelGrid from "./ModelGrid.js";
-import PaintGrid from './PaintGrid.js';
 import ModelRenderer from './ModelItem';
 import Cart from './Cart.js';
-import { Search, User } from "lucide-react";
+
+// ICONS
+import { Box, ShoppingCart, Download, X, Search, User, RotateCw, RefreshCw } from "lucide-react"; 
 import LogoutButton from "../Login-in/LogoutButton.js";
 
+// --- Constants ---
+const WALL_HEIGHT = 250;
+const WALL_THICKNESS = 10;
+const INITIAL_CAMERA_POSITION = new THREE.Vector3(-500, WALL_HEIGHT * 3, 1000);
+
 const FloorPlan3D = () => {
-  const { user_id, room_id } = useParams();
-  const mountRef = useRef(null);
-  const location = useLocation();
-  const [sceneObjects, setSceneObjects] = useState(null);
-  const [furnitureItems, setFurnitureItems] = useState([]);
-  const [activeTab, setActiveTab] = useState("MODELS");
-  const controlsRef = useRef(null);
-  const [selectedModel, setSelectedModel] = useState(null);
-  const [floorplanBounds, setFloorplanBounds] = useState({
-    minX: -Infinity,
-    maxX: Infinity,
-    minZ: -Infinity,
-    maxZ: Infinity,
-  });
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [selectedPaint, setSelectedPaint] = useState(null);
-  const [isPaintMode, setIsPaintMode] = useState(false);
-  const wallMeshesRef = useRef([]);
-  const [cartItems, handleCartItems] = useState([]);
-  const [cartPrice, SetCartPrice] = useState(0);
-  const[FurnitureSearch, SetFurnitureSearch] = useState(false)
+    const { user_id, room_id } = useParams();
+    const mountRef = useRef(null);
+    const location = useLocation();
+    
+    // State for Three.js objects
+    const [sceneObjects, setSceneObjects] = useState(null);
+    const controlsRef = useRef(null);
+    
+    // State for product and interaction
+    const [furnitureItems, setFurnitureItems] = useState([]);
+    const [activeTab, setActiveTab] = useState("MODELS");
+    const [selectedModel, setSelectedModel] = useState(null);
+    const [cartItems, setCartItems] = useState([]);
+    const [cartPrice, SetCartPrice] = useState(0);
+    const [floorplanBounds, setFloorplanBounds] = useState({
+        minX: -Infinity, maxX: Infinity, minZ: -Infinity, maxZ: Infinity,
+    });
+    
+    // Loading/Error states
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState(null);
+    const [furnitureLoading, setFurnitureLoading] = useState(false);
+    
+    // Critical Ref: The THREE.Group to manage all walls (used for cleanup)
+    const wallGroupRef = useRef(new THREE.Group()); 
+    // Critical Ref: To prevent multiple Three.js instances
+    const sceneSetupRef = useRef({ scene: null, renderer: null, animateId: null, initialized: false });
 
-  const [FurnitureLoading, SetFurnitureLoading] = useState(false)
+    // Helper function to update cart state
+    const handleCartItems = useCallback((items) => {
+        setCartItems(items);
+    }, []);
 
-  // Handle paint selection
-  const handlePaintSelect = (paint) => {
-    console.log("Selected Paint:", paint);
-    setSelectedPaint(paint);
-    setIsPaintMode(true);
-    mountRef.current.classList.add('painting');
-  };
-
-  useEffect(() => {
-    const fetchProducts = async () => {
-      SetFurnitureLoading(true)
-      try {
-        const response = await fetch('http://localhost:5002/products');
-        if (!response.ok) {
-          throw new Error('Failed to fetch products');
+    // Function to rotate the orbit controls 90 degrees around the center
+    const rotateView = () => {
+        if (controlsRef.current) {
+            const controls = controlsRef.current;
+            
+            // Calculate new position based on current position and a 90-degree rotation
+            const currentPosition = controls.object.position.clone();
+            const target = controls.target.clone();
+            const vector = currentPosition.sub(target);
+            
+            // Rotate the vector 90 degrees around the Y-axis (up axis)
+            const angle = Math.PI / 2; // 90 degrees in radians
+            const newX = vector.x * Math.cos(angle) - vector.z * Math.sin(angle);
+            const newZ = vector.x * Math.sin(angle) + vector.z * Math.cos(angle);
+            
+            const newPosition = new THREE.Vector3(newX, vector.y, newZ).add(target);
+            
+            // Apply the new position
+            controls.object.position.copy(newPosition);
+            
+            // Invalidate the control's state to force an update in the next animation frame
+            controls.update(); 
         }
-        const data = await response.json();
-        setFurnitureItems(data);
-      } catch (error) {
-        console.error('Error fetching products:', error);
-      } finally{
-        SetFurnitureLoading(false)
-      }
     };
-  
-    fetchProducts();
-    console.log(furnitureItems)
-  }, [FurnitureSearch]);
-  // Function to capture a screenshot
-  const captureScreenshot = (camera, renderer, scene) => {
-    renderer.render(scene, camera); // Render the scene with the given camera
-    return renderer.domElement.toDataURL('image/png'); // Capture the screenshot as a data URL
-  };
-
-  // Function to generate a collage from 4 screenshots
-  const generateCollage = async (frontView, topView, leftView, rightView) => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-
-    // Set canvas dimensions (2x2 grid of screenshots)
-    canvas.width = 800; // Adjust as needed
-    canvas.height = 800; // Adjust as needed
-
-    // Load each screenshot as an image
-    const loadImage = (src) => {
-      return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.src = src;
-        img.onload = () => resolve(img);
-        img.onerror = reject;
-      });
+    
+    // --- Data Fetching ---
+    useEffect(() => {
+        const fetchProducts = async () => {
+            setFurnitureLoading(true);
+            setError(null); 
+            try {
+                // Ensure your backend server is running on port 5002 for this to work
+                const response = await fetch('http://localhost:5002/products'); 
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch products. Status: ${response.status}`);
+                }
+                const data = await response.json();
+                setFurnitureItems(data);
+            } catch (error) {
+                console.error('Error fetching products:', error);
+                setError(`Failed to load furniture data. Details: ${error.message || 'Network error'}`);
+            } finally {
+                setFurnitureLoading(false);
+            }
+        };
+        fetchProducts();
+    }, []); 
+    
+    const handleDownload = () => {
+        // Implement proper screenshot logic here
+        alert("Download feature is temporarily disabled. Use browser's screenshot utility.");
     };
+    
+    const handleModelDrop = useCallback(() => {
+        // Reset selected model after successful placement in ModelRenderer
+        setSelectedModel(null);
+    }, []);
 
-    const [frontImg, topImg, leftImg, rightImg] = await Promise.all([
-      loadImage(frontView),
-      loadImage(topView),
-      loadImage(leftView),
-      loadImage(rightView),
-    ]);
+    // --- Three.js Initialization and Wall/Floor Creation (Fixed Version) ---
+    useEffect(() => {
+        const wallsData = location.state?.layout || [];
+        
+        if (!mountRef.current || sceneSetupRef.current.initialized) return;
 
-    // Draw each screenshot onto the canvas
-    ctx.drawImage(frontImg, 0, 0, 400, 400); // Top-left
-    ctx.drawImage(topImg, 400, 0, 400, 400); // Top-right
-    ctx.drawImage(leftImg, 0, 400, 400, 400); // Bottom-left
-    ctx.drawImage(rightImg, 400, 400, 400, 400); // Bottom-right
+        // Cleanup previous instance before creating a new one (CRITICAL FIX)
+        const cleanupPrevious = () => {
+            if (sceneSetupRef.current.animateId) {
+                cancelAnimationFrame(sceneSetupRef.current.animateId);
+            }
+            if (sceneSetupRef.current.renderer) {
+                mountRef.current?.removeChild(sceneSetupRef.current.renderer.domElement);
+                sceneSetupRef.current.renderer.dispose();
+            }
+            if (sceneSetupRef.current.scene) {
+                sceneSetupRef.current.scene.traverse((object) => {
+                    if (object instanceof THREE.Mesh) {
+                        object.geometry.dispose();
+                        if (Array.isArray(object.material)) {
+                            object.material.forEach(m => m.dispose());
+                        } else {
+                            object.material.dispose();
+                        }
+                    }
+                });
+            }
+        };
+        cleanupPrevious(); 
+        
+        let renderer, scene, camera, controls, animateId;
 
-    // Convert canvas to a data URL
-    return canvas.toDataURL('image/png');
-  };
+        try {
+            // Mark as initialized to prevent duplicate initialization
+            sceneSetupRef.current.initialized = true;
+            
+            // 1. Scene Setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xffffff); // White background
+            
+            // Add wall group to scene
+            const wallGroup = wallGroupRef.current;
+            scene.add(wallGroup);
+            
+            // 2. Camera Setup
+            camera = new THREE.PerspectiveCamera(
+                45,
+                mountRef.current.clientWidth / mountRef.current.clientHeight,
+                1,
+                10000
+            );
+            camera.position.copy(INITIAL_CAMERA_POSITION);
+            camera.lookAt(0, 0, 0);
 
-  // Function to handle the download button click
-  const handleDownload = async () => {
-    if (!sceneObjects) return;
+            // 3. Renderer Setup
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.outputColorSpace = THREE.SRGBColorSpace;
+            mountRef.current.appendChild(renderer.domElement);
+            
+            // 4. Geometry and Layout Calculation
+            let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+            wallsData.forEach((wall) => {
+                const [x1, y1, x2, y2] = wall.points;
+                minX = Math.min(minX, x1, x2);
+                maxX = Math.max(maxX, x1, x2);
+                minZ = Math.min(minZ, y1, y2); 
+                maxZ = Math.max(maxZ, y1, y2); 
+            });
 
-    const { scene, camera, renderer } = sceneObjects;
+            const centerX = (minX + maxX) / 2;
+            const centerZ = (minZ + maxZ) / 2;
+            
+            // 5. Wall Creation (CRITICAL: Clear the group here)
+            wallGroup.clear(); 
+            if (wallsData.length > 0) {
+                wallsData.forEach((wall) => {
+                    const [x1, z1, x2, z2] = wall.points; 
+                    const length = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(z2 - z1, 2));
+                    
+                    const centerWallX = (x1 + x2) / 2 - centerX;
+                    const centerWallZ = (z1 + z2) / 2 - centerZ;
 
-    // Save the original camera position and rotation
-    const originalPosition = camera.position.clone();
-    const originalRotation = camera.rotation.clone();
+                    const wallGeometry = new THREE.BoxGeometry(length, WALL_HEIGHT, WALL_THICKNESS);
+                    const wallMaterial = new THREE.MeshStandardMaterial({
+                        color: 0x1565C0, // Blue wall color
+                        roughness: 0.2,
+                        metalness: 0.1,
+                        side: THREE.FrontSide, 
+                    });
 
-    // Capture front view
-    camera.position.set(-500, 800, 1000); // Adjust for front view
-    camera.lookAt(0, 0, 0);
-    const frontView = captureScreenshot(camera, renderer, scene);
+                    const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
+                    wallMesh.position.set(centerWallX, WALL_HEIGHT / 2, centerWallZ);
+                    const angle = Math.atan2(z2 - z1, x2 - x1);
+                    wallMesh.rotation.y = -angle;
 
-    // Capture top view
-    camera.position.set(0, 1000, 0); // Adjust for top view
-    camera.lookAt(0, 0, 0);
-    const topView = captureScreenshot(camera, renderer, scene);
+                    wallMesh.userData.isWall = true; 
+                    wallGroup.add(wallMesh);
+                });
+            } else {
+                // Fallback walls logic (same as original for function)
+                const defaultWallSize = 1000;
+                const fallbackWallGeometry = new THREE.BoxGeometry(defaultWallSize, WALL_HEIGHT, WALL_THICKNESS);
+                const fallbackWallMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x1565C0, 
+                    side: THREE.FrontSide 
+                });
+                
+                const half = defaultWallSize / 2;
+                
+                let wall1 = new THREE.Mesh(fallbackWallGeometry, fallbackWallMaterial.clone());
+                wall1.position.set(0, WALL_HEIGHT / 2, -half);
+                wallGroup.add(wall1);
+                
+                let wall2 = new THREE.Mesh(fallbackWallGeometry, fallbackWallMaterial.clone());
+                wall2.position.set(0, WALL_HEIGHT / 2, half);
+                wallGroup.add(wall2);
+                
+                let wall3 = new THREE.Mesh(fallbackWallGeometry, fallbackWallMaterial.clone());
+                wall3.rotation.y = Math.PI / 2;
+                wall3.position.set(-half, WALL_HEIGHT / 2, 0);
+                wallGroup.add(wall3);
 
-    // Capture left view
-    camera.position.set(-1000, 800, 0); // Adjust for left view
-    camera.lookAt(0, 0, 0);
-    const leftView = captureScreenshot(camera, renderer, scene);
+                let wall4 = new THREE.Mesh(fallbackWallGeometry, fallbackWallMaterial.clone());
+                wall4.rotation.y = Math.PI / 2;
+                wall4.position.set(half, WALL_HEIGHT / 2, 0);
+                wallGroup.add(wall4);
 
-    // Capture right view
-    camera.position.set(1000, 800, 0); // Adjust for right view
-    camera.lookAt(0, 0, 0);
-    const rightView = captureScreenshot(camera, renderer, scene);
+                minX = -half; maxX = half; minZ = -half; maxZ = half;
+            }
 
-    // Restore the original camera position and rotation
-    camera.position.copy(originalPosition);
-    camera.rotation.copy(originalRotation);
-    renderer.render(scene, camera); // Re-render the original view
+            // 6. Floor Creation
+            const floorWidth = maxX - minX;
+            const floorDepth = maxZ - minZ;
+            const floorGeometry = new THREE.PlaneGeometry(floorWidth, floorDepth);
+            const floorMaterial = new THREE.MeshStandardMaterial({
+                color: 0xf5f5f5, // Light gray floor color
+                roughness: 0.8,
+                metalness: 0.1,
+            });
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.set(0, 0, 0);
+            floor.userData.isFloor = true;
+            scene.add(floor);
+            
+            setFloorplanBounds({
+                minX: -floorWidth / 2, maxX: floorWidth / 2, minZ: -floorDepth / 2, maxZ: floorDepth / 2,
+            });
 
-    // Generate the collage
-    const collageDataUrl = await generateCollage(frontView, topView, leftView, rightView);
+            // 7. Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(500, 1000, 500);
+            directionalLight.target.position.set(0, 0, 0); // Ensure light points to the center
+            scene.add(directionalLight);
+            scene.add(directionalLight.target);
 
-    // Trigger download
-    const link = document.createElement('a');
-    link.href = collageDataUrl;
-    link.download = 'floorplan_collage.png';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+            // 8. Controls Setup
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.1;
+            controls.target.set(0, WALL_HEIGHT / 2, 0);
+            controls.minDistance = 200;
+            controls.maxDistance = 3000;
+            // Enable 360-degree rotation
+            controls.minPolarAngle = 0;
+            controls.maxPolarAngle = Math.PI;
+            controlsRef.current = controls;
 
-  // Initialize Three.js scene
-  useEffect(() => {
-    const walls = location.state?.layout || [];
-    if (!walls.length) {
-      console.warn("No walls data received");
-      return;
-    }
+            // 9. Animation Loop
+            const animate = () => {
+                animateId = requestAnimationFrame(animate);
+                controls.update();
+                renderer.render(scene, camera);
+            };
+            animate();
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf5f5f5);
+            // Store the setup objects for cleanup and ModelRenderer use
+            sceneSetupRef.current = { scene, renderer, animateId, initialized: true };
+            setSceneObjects({ scene, camera, renderer, floor, wallGroup: wallGroupRef.current });
 
-    const camera = new THREE.PerspectiveCamera(
-      45,
-      mountRef.current.clientWidth / mountRef.current.clientHeight,
-      1,
-      10000
+            // 10. Resize Handler (DEFINED BEFORE USE)
+            const handleResize = () => {
+                if (mountRef.current) {
+                    camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+                }
+            };
+            window.addEventListener("resize", handleResize);
+
+            // 11. Cleanup (This now calls the dedicated cleanup function)
+            return () => {
+                cleanupPrevious();
+                window.removeEventListener("resize", handleResize);
+                sceneSetupRef.current.initialized = false;
+            };
+
+        } catch (err) {
+            console.error("Three.js setup error:", err);
+            setError("A graphics error occurred. Your browser/device may not support WebGL.");
+        }
+    }, [location.state?.layout]); 
+
+    // --- Render JSX (New Interface) ---
+    return (
+        <div className="modern-floorplan-container">
+            {/* Navigation */}
+            <nav className="modern-nav">
+                <div className="modern-nav-content">
+                    <div className="modern-nav-left">
+                        <h1 className="modern-logo">
+                            <Link to={`/`} className="modern-logo-link">Decora 3D</Link>
+                        </h1>
+                        <div className="modern-nav-links">
+                            <Link to={`/${user_id}/budget-estimator`}>Budget Estimator</Link>
+                            <Link to={`/products`}>Products</Link>
+                        </div>
+                    </div>
+                    <div className="modern-nav-right">
+                        <div className="modern-search-container">
+                            <input
+                                type="text"
+                                placeholder="Search"
+                                className="modern-search-input"
+                            />
+                            <Search className="modern-search-icon" />
+                        </div>
+                        <button className="modern-profile-button">
+                            <User className="modern-profile-icon" />
+                        </button>
+                        <LogoutButton />
+                    </div>
+                </div>
+            </nav>
+
+            <div className="modern-content" style={{ display: 'flex', gap: '20px', padding: '20px' }}>
+                {/* 3D Viewer Container */}
+                <div 
+                    className="modern-canvas-container" 
+                    style={{ flex: 1.5, minHeight: '80vh', position: 'relative' }}
+                >
+                    <div ref={mountRef} className="threejs-container" />
+                    
+                    {/* 3D Tool Overlay */}
+                    <div className="tool3d-overlay">
+                        <button className="tool3d-button download-button" onClick={handleDownload} title="Download Screenshot">
+                            <Download size={16} style={{ marginRight: '5px' }} /> Download
+                        </button>
+                        <button className="tool3d-button rotate-button" onClick={rotateView} title="Rotate View 90°">
+                            <RefreshCw size={16} style={{ marginRight: '5px' }} /> Rotate
+                        </button>
+                    </div>
+
+                    {/* Model Renderer (Handles GLTF/OBJ loading and manipulation) */}
+                    {sceneObjects && (
+                        <ModelRenderer
+                            scene={sceneObjects.scene}
+                            camera={sceneObjects.camera}
+                            renderer={sceneObjects.renderer}
+                            selectedModel={selectedModel}
+                            walls={location.state?.layout || []}
+                            floorBounds={floorplanBounds}
+                            onError={setError}
+                            onLoadingChange={setIsLoading}
+                            orbitControls={controlsRef.current}
+                            onModelDrop={handleModelDrop}
+                        />
+                    )}
+                    
+                    {/* Overlays for Loading/Error */}
+                    {isLoading && <div className="loading-indicator">Loading Model...</div>}
+                    
+                    {error && (
+                        <div className="error-message">
+                            Error: {error}
+                            <button 
+                                onClick={() => setError(null)} 
+                                className="dismiss-error-button"
+                                title="Dismiss Error"
+                            >
+                                <X size={16}/>
+                            </button>
+                        </div>
+                    )}
+                </div>
+                
+                {/* Side Panel for Models and Furniture */}
+                <div 
+                    className="furniture-section" 
+                    style={{ 
+                        flex: 1, 
+                        minHeight: '80vh', 
+                        backgroundColor: 'rgba(255, 255, 255, 0.95)', 
+                        border: '1px solid rgba(21, 101, 192, 0.2)', 
+                        borderRadius: '16px',
+                        boxShadow: '0 4px 15px rgba(0, 0, 0, 0.1)',
+                        color: '#333'
+                    }}
+                >
+                    <div className="furniture-header" style={{ backgroundColor: 'transparent', borderBottom: '1px solid rgba(21, 101, 192, 0.2)' }}>
+                        <button
+                            className={`header-button ${activeTab === "MODELS" ? "active" : ""}`}
+                            onClick={() => setActiveTab("MODELS")}
+                            style={{ color: activeTab === "MODELS" ? '#fff' : '#1565C0', background: activeTab === "MODELS" ? '#1565C0' : 'rgba(21, 101, 192, 0.1)', borderColor: 'transparent' }}
+                        >
+                            <Box size={18} style={{ marginRight: '5px' }} /> MODELS
+                        </button>
+                        <button
+                            className={`header-button ${activeTab === "FURNITURE" ? "active" : ""}`}
+                            onClick={() => setActiveTab("FURNITURE")}
+                            style={{ color: activeTab === "FURNITURE" ? '#fff' : '#1565C0', background: activeTab === "FURNITURE" ? '#1565C0' : 'rgba(21, 101, 192, 0.1)', borderColor: 'transparent' }}
+                        >
+                             FURNITURE
+                        </button>
+                        <button
+                            className={`header-button ${activeTab === "CART" ? "active" : ""}`}
+                            onClick={() => setActiveTab("CART")}
+                            style={{ color: activeTab === "CART" ? '#fff' : '#1565C0', background: activeTab === "CART" ? '#1565C0' : 'rgba(21, 101, 192, 0.1)', borderColor: 'transparent' }}
+                        >
+                            <ShoppingCart size={18} style={{ marginRight: '5px' }} /> CART
+                        </button>
+                    </div>
+
+                    <div className="furniture-grid" style={{ overflowY: 'auto' }}>
+                        {activeTab === "FURNITURE" && furnitureLoading && (
+                            <div className="loading-indicator-small" style={{ color: '#1565C0' }}>Loading furniture list...</div>
+                        )}
+                        
+                        {activeTab === "FURNITURE" && (
+                            <FurnitureGrid
+                                FurnitureLoading={furnitureLoading}
+                                products={furnitureItems}
+                                items={cartItems}
+                                handleCartItems={handleCartItems}
+                                cartPrice={cartPrice}
+                                handleCartPrice={SetCartPrice}
+                            />
+                        )}
+                        {activeTab === "MODELS" && (
+                            <ModelGrid
+                                apiKey="34049ad4ef4e47948ecc4fb52d39c8c4"
+                                onModelSelect={setSelectedModel}
+                            />
+                        )}
+                        {activeTab === "CART" && (
+                            <Cart
+                                items={cartItems}
+                                handleCartItems={handleCartItems}
+                                cartPrice={cartPrice}
+                                handleCartPrice={SetCartPrice}
+                            />
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
     );
-    camera.position.set(-500, 800, 1000);
-    camera.lookAt(0, 0, 0);
-
-    if (!mountRef.current || mountRef.current.clientWidth === 0 || mountRef.current.clientHeight === 0) {
-      console.error("Three.js mount container not ready or has no size.");
-      return;
-    }
-
-    let renderer;
-    try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setSize(
-        mountRef.current.clientWidth,
-        mountRef.current.clientHeight
-      );
-    } catch (err) {
-      console.error("Error creating WebGL context:", err);
-      setError("Your browser/device may not support WebGL.");
-      return;
-    }
-
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-
-    mountRef.current.appendChild(renderer.domElement);
-
-    // Initialize floor
-    const floorMaterial = new THREE.MeshStandardMaterial({
-      color: 0xf0f0f0,
-      roughness: 0.5,
-      metalness: 0.1,
-    });
-
-    // Calculate floor dimensions
-    let minX = Infinity,
-      maxX = -Infinity,
-      minY = Infinity,
-      maxY = -Infinity;
-    walls.forEach((wall) => {
-      [wall.points[0], wall.points[2]].forEach((x) => {
-        minX = Math.min(minX, x);
-        maxX = Math.max(maxX, x);
-      });
-      [wall.points[1], wall.points[3]].forEach((y) => {
-        minY = Math.min(minY, y);
-        maxY = Math.max(maxY, y);
-      });
-    });
-
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-
-    // Create walls
-    const wallHeight = 250;
-    const wallThickness = 10;
-    const wallMeshes = [];
-
-    walls.forEach((wall) => {
-      const [x1, y1, x2, y2] = wall.points;
-      const length = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
-      const centerWallX = (x1 + x2) / 2 - centerX;
-      const centerWallY = (y1 + y2) / 2 - centerY;
-
-      const wallGeometry = new THREE.BoxGeometry(
-        length,
-        wallHeight,
-        wallThickness
-      );
-
-      const wallMaterial = new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        roughness: 0.2,
-        metalness: 0.1,
-        transparent: true,
-        opacity: 1,
-        side: THREE.DoubleSide
-      });
-
-      const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
-      wallMesh.position.set(centerWallX, wallHeight / 2, centerWallY);
-      const angle = Math.atan2(y2 - y1, x2 - x1);
-      wallMesh.rotation.y = -angle;
-
-      scene.add(wallMesh);
-      wallMeshes.push(wallMesh);
-      wallMeshesRef.current.push(wallMesh);
-    });
-
-    // Handle wall painting
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
-
-    const handleWallClick = (event) => {
-      if (!isPaintMode || !selectedPaint) {
-        console.log("Paint mode is not active or no paint is selected.");
-        return;
-      }
-    
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    
-      raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects(wallMeshesRef.current);
-    
-      if (intersects.length > 0) {
-        const wallMesh = intersects[0].object;
-        console.log("Wall clicked:", wallMesh);
-        console.log("Selected paint color:", selectedPaint.color);
-    
-        // Dispose of the old material
-        if (wallMesh.material) {
-          console.log("Disposing old material:", wallMesh.material);
-          wallMesh.material.dispose();
-        }
-    
-        // Create a new material with the selected color
-        const newMaterial = new THREE.MeshStandardMaterial({
-          color: new THREE.Color(selectedPaint.color), // Ensure the color is valid
-          roughness: 0.2,
-          metalness: 0.1,
-          side: THREE.DoubleSide,
-        });
-    
-        // Apply the new material to the wall mesh
-        wallMesh.material = newMaterial;
-        wallMesh.material.needsUpdate = true; // Ensure the material is updated
-        wallMesh.geometry.computeBoundingSphere(); // Recompute bounding sphere
-    
-        console.log("Wall material after update:", wallMesh.material);
-    
-        // Force a re-render of the scene
-        renderer.render(scene, camera);
-        console.log("Scene re-rendered with updated wall color.");
-      } else {
-        console.log("No wall was clicked.");
-      }
-    };
-
-    renderer.domElement.addEventListener('click', handleWallClick);
-
-    // Create floor
-    const floorWidth = maxX - minX;
-    const floorDepth = maxY - minY;
-    const floorGeometry = new THREE.PlaneGeometry(floorWidth, floorDepth);
-    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.set(0, 0, 0);
-    scene.add(floor);
-
-    // Set floorplan bounds
-    setFloorplanBounds({
-      minX: -floorWidth / 2,
-      maxX: floorWidth / 2,
-      minZ: -floorDepth / 2,
-      maxZ: floorDepth / 2,
-    });
-
-    // Setup lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-    scene.add(ambientLight);
-
-    const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight1.position.set(500, 1000, 500);
-    scene.add(directionalLight1);
-
-    const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
-    directionalLight2.position.set(-500, 1000, -500);
-    scene.add(directionalLight2);
-
-    // Setup controls
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.1;
-    controls.screenSpacePanning = false;
-    controls.maxPolarAngle = Math.PI;
-    controls.minDistance = 500;
-    controls.maxDistance = 3000;
-    controls.target.set(0, wallHeight / 2, 0);
-    controls.enabled = true; // Make sure it's enabled by default
-    controls.enableRotate = true;
-    controls.rotateSpeed = 0.5;
-    controls.enableZoom = true;
-    controls.enablePan = true;
-    controls.panSpeed = 0.5;
-    controlsRef.current = controls;
-
-    // Animation loop
-    const animate = () => {
-      requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
-    };
-    animate();
-
-    setSceneObjects({ scene, camera, renderer, floor });
-
-    // Handle window resize
-    const handleResize = () => {
-      camera.aspect =
-        mountRef.current.clientWidth / mountRef.current.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(
-        mountRef.current.clientWidth,
-        mountRef.current.clientHeight
-      );
-    };
-    window.addEventListener("resize", handleResize);
-
-    // Cleanup
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      mountRef.current?.removeChild(renderer.domElement);
-      renderer.dispose();
-      scene.traverse((object) => {
-        if (object instanceof THREE.Mesh) {
-          object.geometry.dispose();
-          object.material.dispose();
-        }
-      });
-      renderer.domElement.removeEventListener('click', handleWallClick);
-    };
-  }, [location, selectedPaint, isPaintMode]);
-
-  return (
-    <div className="decora-container">
-      <nav className="nav">
-        <div className="nav-content">
-          <div className="nav-left">
-          <h1 className="logo">
-    <a href="/main-page" className="logo-link">Decora</a>
-</h1>
-            <div className="nav-links">
-              {/* <a href="/">Design</a> */}
-              <a href="/products">Products</a>
-              <Link to={`/${user_id}/budget-estimator`}>Budget Estimator</Link>
-            </div>
-          </div>
-          <div className="nav-right">
-            <div className="search-container">
-              <input
-                type="text"
-                placeholder="Search"
-                className="search-input"
-              />
-              <Search className="search-icon" />
-            </div>
-            <button className="profile-button">
-              <User className="profile-icon" />
-            </button>
-            <LogoutButton />
-          </div>
-        </div>
-      </nav>
-      <div className="main-content">
-        <div className="layout-container">
-          <div ref={mountRef} className="threejs-container" />
-          <button className="tool3d-button" onClick={handleDownload}>Download</button>
-          {sceneObjects && (
-            <ModelRenderer
-            scene={sceneObjects.scene}
-            camera={sceneObjects.camera}
-            renderer={sceneObjects.renderer}
-            selectedModel={selectedModel}
-            walls={location.state?.layout || []}
-            floorBounds={floorplanBounds}
-            onError={setError}
-            onLoadingChange={setIsLoading}
-            orbitControls={controlsRef.current}
-            />
-          )}
-          {isLoading && <div className="loading-indicator">Loading...</div>}
-          {error && <div className="error-message">{error}</div>}
-        </div>
-
-        <div className="furniture-section">
-          <div className="furniture-header">
-            <button
-              className={`header-button ${activeTab === "MODELS" ? "active" : ""}`}
-              onClick={() => setActiveTab("MODELS")}
-            >
-              MODELS
-            </button>
-            <button
-              className={`header-button ${activeTab === "FURNITURE" ? "active" : ""}`}
-              onClick={() => setActiveTab("FURNITURE")}
-            >
-              FURNITURE
-            </button>
-            {/* <button
-              className={`header-button ${activeTab === "PAINT" ? "active" : ""}`}
-              onClick={() => setActiveTab("PAINT")}
-            >
-              PAINT
-            </button> */}
-            <button
-              className={`header-button ${activeTab === "CART" ? "active" : ""}`}
-              onClick={() => setActiveTab("CART")}
-            >
-              CART
-            </button>
-          </div>
-
-          <div className="furniture-grid">
-            {activeTab === "FURNITURE" && <FurnitureGrid FurnitureLoading={FurnitureLoading} setFurnitureSearch={SetFurnitureSearch} products={furnitureItems} items={cartItems} handleCartItems={handleCartItems} cartPrice={cartPrice} handleCartPrice={SetCartPrice} />}
-            {activeTab === "MODELS" && (
-              <ModelGrid
-                apiKey="34049ad4ef4e47948ecc4fb52d39c8c4"
-                onModelSelect={setSelectedModel}
-              />
-            )}
-            {activeTab === 'PAINT' && <PaintGrid onPaintSelect={handlePaintSelect} />}
-            {activeTab === "CART" && <Cart items={cartItems} handleCartItems={handleCartItems} cartPrice={cartPrice} handleCartPrice={SetCartPrice} />}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 };
 
 export default FloorPlan3D;

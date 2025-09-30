@@ -1,25 +1,48 @@
-import React, { useState, useRef } from "react";
-import { Stage, Layer, Line, Text } from "react-konva";
-import { useNavigate, Link , useParams} from "react-router-dom";
-import { Search, User, ArrowRightCircle } from "lucide-react";
+// Floorplan2d.js
+import React, { useState, useRef, useEffect } from "react";
+import { Stage, Layer, Line, Text, Rect } from "react-konva";
+import { useNavigate, Link, useParams } from "react-router-dom";
+import { Search, User, ArrowRightCircle, Minus, Plus, Download, Trash2, Move, Expand, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from "lucide-react";
 import LogoutButton from "../Login-in/LogoutButton";
 import Konva from "konva";
-import "./Floorplan2d.css"
+import "./Floorplan2d.css";
 import Chatbot from "../ChatBot/Chatbot";
 
 const GRID_SIZE = 20;
 const WALL_THICKNESS = 3;
 
-const FloorPlan = ({userId}) => {
-  const {user_id, room_id} = useParams()
+const FloorPlan = ({ userId }) => {
+  const { user_id, room_id } = useParams();
   const [walls, setWalls] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [tool, setTool] = useState("draw");
   const [unit, setUnit] = useState("feet");
+  const [toolSize, setToolSize] = useState(3);
+  const [stageSize, setStageSize] = useState({ width: 800, height: 600 });
+  const [stagePosition, setStagePosition] = useState({ x: 0, y: 0 });
+  const [isExtending, setIsExtending] = useState(false);
+  const [extendDirection, setExtendDirection] = useState(null);
   const stageRef = useRef();
+  const containerRef = useRef();
   const navigate = useNavigate();
 
   const conversionFactor = unit === "feet" ? 1 : 0.3048;
+
+  useEffect(() => {
+    const handleResize = () => {
+      setStageSize({
+        width: Math.max(800, window.innerWidth - 100),
+        height: Math.max(600, window.innerHeight - 200)
+      });
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
 
   const createGrid = (width, height, gridSize) => {
     const gridLines = [];
@@ -28,9 +51,8 @@ const FloorPlan = ({userId}) => {
         <Line
           key={`v-${i}`}
           points={[i * gridSize, 0, i * gridSize, height]}
-          stroke="#E6D5C3"
+          stroke="rgba(255, 255, 255, 0.15)"
           strokeWidth={0.5}
-          dash={[2, 4]}
         />
       );
     }
@@ -39,9 +61,8 @@ const FloorPlan = ({userId}) => {
         <Line
           key={`h-${i}`}
           points={[0, i * gridSize, width, i * gridSize]}
-          stroke="#E6D5C3"
+          stroke="rgba(255, 255, 255, 0.15)"
           strokeWidth={0.5}
-          dash={[2, 4]}
         />
       );
     }
@@ -54,20 +75,32 @@ const FloorPlan = ({userId}) => {
   });
 
   const handleMouseDown = (e) => {
+    if (isExtending) return;
+    
     if (tool !== "draw") return;
     const pos = e.target.getStage().getPointerPosition();
-    const snapped = snapToGrid(pos.x, pos.y);
+    const snapped = snapToGrid(pos.x - stagePosition.x, pos.y - stagePosition.y);
     setWalls([
       ...walls,
-      { points: [snapped.x, snapped.y, snapped.x, snapped.y] },
+      { points: [snapped.x, snapped.y, snapped.x, snapped.y], thickness: toolSize },
     ]);
     setIsDrawing(true);
   };
 
   const handleMouseMove = (e) => {
+    if (isExtending) {
+      handleExtendCanvas(e);
+      return;
+    }
+    
     if (!isDrawing || tool !== "draw") return;
-    const pos = e.target.getStage().getPointerPosition();
-    const snapped = snapToGrid(pos.x, pos.y);
+    
+    // Get the stage from the ref instead of the event target
+    const stage = stageRef.current;
+    if (!stage) return;
+    
+    const pos = stage.getPointerPosition();
+    const snapped = snapToGrid(pos.x - stagePosition.x, pos.y - stagePosition.y);
     const updatedWalls = [...walls];
     const currentWall = updatedWalls[updatedWalls.length - 1];
     currentWall.points[2] = snapped.x;
@@ -78,6 +111,11 @@ const FloorPlan = ({userId}) => {
   const handleMouseUp = () => {
     if (isDrawing && tool === "draw") {
       setIsDrawing(false);
+    }
+    
+    if (isExtending) {
+      setIsExtending(false);
+      setExtendDirection(null);
     }
   };
 
@@ -97,8 +135,8 @@ const FloorPlan = ({userId}) => {
 
     // Create a temporary white rectangle as the background
     const backgroundLayer = new Konva.Rect({
-      width: stage.width(),
-      height: stage.height(),
+      width: stageSize.width,
+      height: stageSize.height,
       fill: "white",
     });
     stage.getLayers()[0].add(backgroundLayer);
@@ -109,9 +147,9 @@ const FloorPlan = ({userId}) => {
       text: "Decora",
       fontSize: 25,
       fontFamily: "Playfair Display",
-      fill: "#8B4513",
-      x: stage.width() - 100,
-      y: stage.height() - 30,
+      fill: "#1565C0",
+      x: stageSize.width - 100,
+      y: stageSize.height - 30,
     });
     stage.getLayers()[0].add(decoraText);
 
@@ -135,121 +173,307 @@ const FloorPlan = ({userId}) => {
     document.body.removeChild(link);
   };
 
+  const startExtending = (direction) => {
+    setIsExtending(true);
+    setExtendDirection(direction);
+  };
+
+  const handleExtendCanvas = (e) => {
+    if (!isExtending) return;
+    
+    // Get the stage from the ref instead of the event target
+    const stage = stageRef.current;
+    if (!stage) return;
+    
+    const pos = stage.getPointerPosition();
+    const extendAmount = 20;
+    
+    switch (extendDirection) {
+      case 'right':
+        setStageSize(prev => ({ ...prev, width: prev.width + extendAmount }));
+        break;
+      case 'left':
+        if (stageSize.width > 400) {
+          setStageSize(prev => ({ ...prev, width: prev.width - extendAmount }));
+          setStagePosition(prev => ({ ...prev, x: prev.x + extendAmount }));
+        }
+        break;
+      case 'bottom':
+        setStageSize(prev => ({ ...prev, height: prev.height + extendAmount }));
+        break;
+      case 'top':
+        if (stageSize.height > 300) {
+          setStageSize(prev => ({ ...prev, height: prev.height - extendAmount }));
+          setStagePosition(prev => ({ ...prev, y: prev.y + extendAmount }));
+        }
+        break;
+      default:
+        break;
+    }
+  };
+
+  // Function to handle button click for extending canvas
+  const handleExtendButtonClick = (direction) => {
+    const extendAmount = 50; // Fixed amount to extend when button is clicked
+    
+    switch (direction) {
+      case 'up':
+        if (stageSize.height > 300) {
+          setStageSize(prev => ({ ...prev, height: prev.height - extendAmount }));
+          setStagePosition(prev => ({ ...prev, y: prev.y + extendAmount }));
+        }
+        break;
+      case 'down':
+        setStageSize(prev => ({ ...prev, height: prev.height + extendAmount }));
+        break;
+      case 'left':
+        if (stageSize.width > 400) {
+          setStageSize(prev => ({ ...prev, width: prev.width - extendAmount }));
+          setStagePosition(prev => ({ ...prev, x: prev.x + extendAmount }));
+        }
+        break;
+      case 'right':
+        setStageSize(prev => ({ ...prev, width: prev.width + extendAmount }));
+        break;
+      default:
+        break;
+    }
+  };
+
   return (
-    <div className="floorplan-container">
-      <nav className="nav">
-        <div className="nav-content">
-          <div className="nav-left">
-          <h1 className="logo">
-    <a href="/main-page" className="logo-link">Decora</a>
-</h1>
-            <div className="nav-links">
-              {/* <a href="/">Design</a> */}
+    <div className="modern-floorplan-container">
+      <nav className="modern-nav">
+        <div className="modern-nav-content">
+          <div className="modern-nav-left">
+            <h1 className="modern-logo">
+              <a href="/main-page" className="modern-logo-link">Decora</a>
+            </h1>
+            <div className="modern-nav-links">
               <a href="/products">Products</a>
               <Link to={`/${user_id}/budget-estimator`}>Budget Estimator</Link>
             </div>
           </div>
-          <div className="nav-right">
-            <div className="search-container">
+          <div className="modern-nav-right">
+            <div className="modern-search-container">
               <input
                 type="text"
                 placeholder="Search"
-                className="search-input"
+                className="modern-search-input"
               />
-              <Search className="search-icon" />
+              <Search className="modern-search-icon" />
             </div>
-            <button className="profile-button">
-              <User className="profile-icon" />
+            <button className="modern-profile-button">
+              <User className="modern-profile-icon" />
             </button>
             <LogoutButton />
           </div>
         </div>
       </nav>
 
-      <div className="content">
-        <h2 className="header-text">
-          Draw the 2D Layout of your room in the grid below
+      <div className="modern-content">
+        <h2 className="modern-header-text">
+          Design Your Dream Space in 2D
         </h2>
+        <p className="modern-subheader">
+          Draw your room layout and we'll transform it into a 3D masterpiece
+        </p>
 
-        <div className="canvas-container">
-          <div className="toolbar">
-            <div className="toolbar-left">
-              <button
-                onClick={() => setTool("draw")}
-                className={`tool2d-button ${tool === "draw" ? "active" : ""}`}
-              >
-                Draw Wall
-              </button>
-              <button
-                onClick={() => setTool("delete")}
-                className={`tool2d-button ${tool === "delete" ? "active" : ""}`}
-              >
-                Delete Wall
-              </button>
-              <select
-                value={unit}
-                onChange={(e) => setUnit(e.target.value)}
-                className="tool2d-select"
-              >
-                <option value="feet">Feet</option>
-                <option value="meters">Meters</option>
-              </select>
-              <button onClick={() => setWalls([])} className="tool2d-button">
-                Clear All
-              </button>
-              <button onClick={handleSave} className="tool2d-button">
-                Download
-              </button>
+        <div className="modern-canvas-container">
+          <div className="modern-toolbar">
+            <div className="modern-toolbar-left">
+              <div className="tool-section">
+                <h3>Drawing Tools</h3>
+                <div className="tool-group">
+                  <button
+                    onClick={() => setTool("draw")}
+                    className={`modern-tool-button ${tool === "draw" ? "active" : ""}`}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M12 19l7-7 3 3-7 7-3-3z" />
+                      <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
+                      <path d="M2 2l7.586 7.586" />
+                      <circle cx="11" cy="11" r="2" />
+                    </svg>
+                    Pencil
+                  </button>
+                  <button
+                    onClick={() => setTool("delete")}
+                    className={`modern-tool-button ${tool === "delete" ? "active" : ""}`}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z" />
+                      <line x1="18" y1="9" x2="12" y2="15" />
+                      <line x1="12" y1="9" x2="18" y2="15" />
+                    </svg>
+                    Eraser
+                  </button>
+                </div>
+              </div>
+
+              <div className="tool-section">
+                <h3>Tool Size</h3>
+                <div className="size-control">
+                  <button 
+                    onClick={() => setToolSize(Math.max(1, toolSize - 1))}
+                    className="size-button"
+                  >
+                    <Minus size={14} />
+                  </button>
+                  <div className="size-display">
+                    <div 
+                      className="size-preview"
+                      style={{ width: `${toolSize * 4}px`, height: `${toolSize * 4}px` }}
+                    ></div>
+                    <span>{toolSize}px</span>
+                  </div>
+                  <button 
+                    onClick={() => setToolSize(Math.min(10, toolSize + 1))}
+                    className="size-button"
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="tool-section">
+                <h3>Units</h3>
+                <select
+                  value={unit}
+                  onChange={(e) => setUnit(e.target.value)}
+                  className="modern-unit-select"
+                >
+                  <option value="feet">Feet</option>
+                  <option value="meters">Meters</option>
+                </select>
+              </div>
+
+              <div className="tool-section">
+                <h3>Extend Canvas</h3>
+                <div className="extend-direction-buttons">
+                  <h4>Extend by Click</h4>
+                  <div className="direction-buttons-grid">
+                    <button 
+                      className="direction-button up"
+                      onClick={() => handleExtendButtonClick('up')}
+                      title="Extend Up"
+                    >
+                      <ArrowUp size={14} />
+                    </button>
+                    <div className="direction-buttons-middle">
+                      <button 
+                        className="direction-button left"
+                        onClick={() => handleExtendButtonClick('left')}
+                        title="Extend Left"
+                      >
+                        <ArrowLeft size={14} />
+                      </button>
+                      <div className="direction-center">
+                        <Move size={16} />
+                      </div>
+                      <button 
+                        className="direction-button right"
+                        onClick={() => handleExtendButtonClick('right')}
+                        title="Extend Right"
+                      >
+                        <ArrowRight size={14} />
+                      </button>
+                    </div>
+                    <button 
+                      className="direction-button down"
+                      onClick={() => handleExtendButtonClick('down')}
+                      title="Extend Down"
+                    >
+                      <ArrowDown size={14} />
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="toolbar-right">
-              <button
-                onClick={() =>
-                  navigate(`/${user_id}/${room_id}/floorplan3d`, { state: { layout: walls } })
-                }
-                className="submit-button"
-              >
-                Furnish in 3D
-                <ArrowRightCircle className="submit-icon" />
-              </button>
+
+            <div className="modern-toolbar-right">
+              <div className="action-buttons">
+                <button onClick={() => setWalls([])} className="modern-action-button clear">
+                  <Trash2 size={16} />
+                  Clear All
+                </button>
+                <button onClick={handleSave} className="modern-action-button download">
+                  <Download size={16} />
+                  Download
+                </button>
+                <button
+                  onClick={() =>
+                    navigate(`/${user_id}/${room_id}/floorplan3d`, { state: { layout: walls } })
+                  }
+                  className="modern-submit-button"
+                >
+                  Furnish in 3D
+                  <ArrowRightCircle className="modern-submit-icon" />
+                </button>
+              </div>
             </div>
           </div>
 
-          <Stage
-            width={window.innerWidth - 100}
-            height={600}
-            onMouseDown={handleMouseDown}
+          <div 
+            className="modern-stage-container"
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
-            ref={stageRef}
+            ref={containerRef}
           >
-            <Layer>
-              {createGrid(window.innerWidth - 100, 600, GRID_SIZE)}
-              {walls.map((wall, index) => (
-                <React.Fragment key={index}>
-                  <Line
-                    points={wall.points}
-                    stroke={tool === "delete" ? "#B22222" : "#8B4513"}
-                    strokeWidth={WALL_THICKNESS}
-                    onClick={() => handleWallClick(index)}
-                  />
-                  <Text
-                    x={(wall.points[0] + wall.points[2]) / 2}
-                    y={(wall.points[1] + wall.points[3]) / 2 - 15}
-                    text={`${(
-                      (Math.sqrt(
-                        (wall.points[2] - wall.points[0]) ** 2 +
-                          (wall.points[3] - wall.points[1]) ** 2
-                      ) /
-                        GRID_SIZE) *
-                      conversionFactor
-                    ).toFixed(1)} ${unit}`}
-                    fontSize={12}
-                    fill="#8B4513"
-                  />
-                </React.Fragment>
-              ))}
-            </Layer>
-          </Stage>
+            <div className="canvas-dimensions">
+              {Math.round(stageSize.width / GRID_SIZE * conversionFactor)} {unit} × {Math.round(stageSize.height / GRID_SIZE * conversionFactor)} {unit}
+            </div>
+            <Stage
+              width={stageSize.width}
+              height={stageSize.height}
+              onMouseDown={handleMouseDown}
+              ref={stageRef}
+              x={stagePosition.x}
+              y={stagePosition.y}
+            >
+              <Layer>
+                <Rect
+                  width={stageSize.width}
+                  height={stageSize.height}
+                  fill="rgba(13, 43, 80, 0.5)"
+                />
+                {createGrid(stageSize.width, stageSize.height, GRID_SIZE)}
+                {walls.map((wall, index) => (
+                  <React.Fragment key={index}>
+                    <Line
+                      points={wall.points}
+                      stroke={tool === "delete" ? "#ff4d4f" : "#42A5F5"}
+                      strokeWidth={wall.thickness || toolSize}
+                      onClick={() => handleWallClick(index)}
+                      lineCap="round"
+                      lineJoin="round"
+                      shadowColor={tool === "delete" ? "rgba(255, 77, 79, 0.5)" : "rgba(66, 165, 245, 0.5)"}
+                      shadowBlur={5}
+                      shadowOffset={{ x: 0, y: 2 }}
+                      shadowOpacity={0.3}
+                    />
+                    <Text
+                      x={(wall.points[0] + wall.points[2]) / 2}
+                      y={(wall.points[1] + wall.points[3]) / 2 - 15}
+                      text={`${(
+                        (Math.sqrt(
+                          (wall.points[2] - wall.points[0]) ** 2 +
+                            (wall.points[3] - wall.points[1]) ** 2
+                        ) /
+                          GRID_SIZE) *
+                        conversionFactor
+                      ).toFixed(1)} ${unit}`}
+                      fontSize={12}
+                      fill="#fff"
+                      fontFamily="Inter, sans-serif"
+                      padding={5}
+                      cornerRadius={3}
+                     
+                    />
+                  </React.Fragment>
+                ))}
+              </Layer>
+            </Stage>
+          </div>
         </div>
       </div>
     </div>
